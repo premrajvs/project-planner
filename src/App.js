@@ -13,10 +13,15 @@ function App() {
   const [db, setDb] = useState(null);
   const [auth, setAuth] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [parentTasks, setParentTasks] = useState([]);
   const [newTask, setNewTask] = useState({
     name: '',
     start: '',
-    end: ''
+    end: '',
+    startTime: '00:00',
+    endTime: '00:00',
+    parent: '',
+    predecessor: ''
   });
 
   // Effect to handle Firebase initialization and authentication state changes.
@@ -81,29 +86,96 @@ function App() {
       const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
       
       const unsubscribe = onSnapshot(tasksCollectionRef, (querySnapshot) => {
-        const fetchedTasks = [];
+        const fetchedTasks = {};
+        const children = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          fetchedTasks.push({
+          const task = {
             id: doc.id,
             name: data.name,
-            start: new Date(data.start.toDate()),
-            end: new Date(data.end.toDate())
-          });
+            start: new Date(`${data.start}T${data.startTime}:00`),
+            end: new Date(`${data.end}T${data.endTime}:00`),
+            parent: data.parent || null,
+            predecessor: data.predecessor || null
+          };
+          fetchedTasks[doc.id] = task;
+          children.push(task);
         });
-        setTasks(fetchedTasks);
+        
+        // Calculate parent tasks and relationships
+        const allTasks = Object.values(fetchedTasks);
+        const parentTasksMap = {};
+        allTasks.forEach(task => {
+          if (task.parent) {
+            if (!parentTasksMap[task.parent]) {
+              parentTasksMap[task.parent] = { id: task.parent, name: task.parent, children: [] };
+            }
+            parentTasksMap[task.parent].children.push(task);
+          }
+        });
+
+        // Calculate parent task start and end dates
+        const finalParentTasks = Object.values(parentTasksMap).map(parentTask => {
+          const startDates = parentTask.children.map(child => child.start);
+          const endDates = parentTask.children.map(child => child.end);
+          return {
+            id: parentTask.id,
+            name: parentTask.name,
+            start: new Date(Math.min(...startDates)),
+            end: new Date(Math.max(...endDates)),
+          };
+        });
+
+        setTasks(children);
+        setParentTasks(finalParentTasks);
       });
       
       return () => unsubscribe();
     }
   }, [db, userId]);
 
+  // Effect to handle predecessor/successor logic.
+  useEffect(() => {
+    if (db && userId && tasks.length > 0) {
+      // Loop through all tasks to find successors
+      tasks.forEach(successorTask => {
+        if (successorTask.predecessor) {
+          const predecessorTask = tasks.find(t => t.id === successorTask.predecessor);
+          if (predecessorTask) {
+            const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
+            const successorTaskDocRef = doc(tasksCollectionRef, successorTask.id);
+            
+            // Check if the predecessor's end time is later than the successor's start time
+            // and adjust if necessary.
+            if (predecessorTask.end > successorTask.start) {
+              const diff = predecessorTask.end.getTime() - successorTask.start.getTime();
+              const newEndDate = new Date(successorTask.end.getTime() + diff);
+
+              // Update the successor task in Firestore.
+              updateDoc(successorTaskDocRef, {
+                start: predecessorTask.end,
+                end: newEndDate,
+                // The date fields are stored as strings for simplicity
+                start: predecessorTask.end.toISOString().slice(0,10),
+                startTime: predecessorTask.end.toTimeString().slice(0,5),
+                end: newEndDate.toISOString().slice(0,10),
+                endTime: newEndDate.toTimeString().slice(0,5),
+              }).catch(error => {
+                console.error("Error updating successor task:", error);
+              });
+            }
+          }
+        }
+      });
+    }
+  }, [tasks, db, userId]);
+
   // Effect to draw the Gantt chart whenever tasks or the Google Charts library are ready.
   useEffect(() => {
     if (window.google?.charts && tasks.length > 0) {
       window.google.charts.setOnLoadCallback(drawChart);
     }
-  }, [tasks]);
+  }, [tasks, parentTasks]);
 
   // Function to draw the Gantt chart.
   const drawChart = () => {
@@ -116,16 +188,32 @@ function App() {
     data.addColumn('number', 'Percent Complete');
     data.addColumn('string', 'Dependencies');
 
+    // Add parent tasks first
+    parentTasks.forEach(parentTask => {
+      const duration = parentTask.end.getTime() - parentTask.start.getTime();
+      data.addRow([
+        parentTask.id,
+        parentTask.name,
+        parentTask.start,
+        parentTask.end,
+        duration,
+        0, // Parent tasks are not a single completion
+        null
+      ]);
+    });
+
+    // Add child tasks
     tasks.forEach(task => {
       const duration = task.end.getTime() - task.start.getTime();
+      const dependencies = task.predecessor ? task.predecessor : null;
       data.addRow([
         task.id,
         task.name,
         task.start,
         task.end,
         duration,
-        100, // We'll set completion to 100% for simplicity.
-        null
+        100, // Child tasks are considered 100% for this example
+        dependencies
       ]);
     });
 
@@ -133,6 +221,13 @@ function App() {
       height: 400,
       gantt: {
         trackHeight: 30,
+        innerGridTrack: { fill: '#fafafa' },
+        innerGridHorzLine: { stroke: '#d1d5db' },
+        arrow: {
+          color: 'red',
+          width: 2,
+          radius: 0
+        },
       }
     };
 
@@ -211,12 +306,24 @@ function App() {
       const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
       await addDoc(tasksCollectionRef, {
         name: newTask.name,
-        start: new Date(newTask.start),
-        end: new Date(newTask.end),
+        start: newTask.start,
+        end: newTask.end,
+        startTime: newTask.startTime,
+        endTime: newTask.endTime,
+        parent: newTask.parent || null,
+        predecessor: newTask.predecessor || null,
         createdAt: new Date()
       });
       setMessage('Task added successfully!');
-      setNewTask({ name: '', start: '', end: '' }); // Reset form
+      setNewTask({ 
+        name: '', 
+        start: '', 
+        end: '', 
+        startTime: '00:00', 
+        endTime: '00:00',
+        parent: '',
+        predecessor: ''
+      }); // Reset form
     } catch (error) {
       console.error("Error adding task:", error);
       setMessage('Error adding task. Please try again.');
@@ -267,19 +374,51 @@ function App() {
                 required
               />
               <input
-                type="date"
-                value={newTask.start}
-                onChange={(e) => setNewTask({ ...newTask, start: e.target.value })}
+                type="text"
+                placeholder="Parent Task ID (Optional)"
+                value={newTask.parent}
+                onChange={(e) => setNewTask({ ...newTask, parent: e.target.value })}
                 className="input-field"
-                required
               />
               <input
-                type="date"
-                value={newTask.end}
-                onChange={(e) => setNewTask({ ...newTask, end: e.target.value })}
+                type="text"
+                placeholder="Predecessor Task ID (Optional)"
+                value={newTask.predecessor}
+                onChange={(e) => setNewTask({ ...newTask, predecessor: e.target.value })}
                 className="input-field"
-                required
               />
+              <div className="date-time-group">
+                <input
+                  type="date"
+                  value={newTask.start}
+                  onChange={(e) => setNewTask({ ...newTask, start: e.target.value })}
+                  className="input-field-half"
+                  required
+                />
+                <input
+                  type="time"
+                  value={newTask.startTime}
+                  onChange={(e) => setNewTask({ ...newTask, startTime: e.target.value })}
+                  className="input-field-half"
+                  required
+                />
+              </div>
+              <div className="date-time-group">
+                <input
+                  type="date"
+                  value={newTask.end}
+                  onChange={(e) => setNewTask({ ...newTask, end: e.target.value })}
+                  className="input-field-half"
+                  required
+                />
+                <input
+                  type="time"
+                  value={newTask.endTime}
+                  onChange={(e) => setNewTask({ ...newTask, endTime: e.target.value })}
+                  className="input-field-half"
+                  required
+                />
+              </div>
               <button type="submit" className="submit-button">
                 Add Task
               </button>
@@ -289,7 +428,7 @@ function App() {
             <ul className="task-list">
               {tasks.map(task => (
                 <li key={task.id} className="task-item">
-                  <span className="task-name">{task.name}</span>
+                  <span className="task-name">{task.name} (ID: {task.id})</span>
                   <button
                     onClick={() => handleDeleteTask(task.id)}
                     className="delete-button"
@@ -424,6 +563,19 @@ function App() {
         @media (min-width: 768px) {
           .task-form {
             flex-direction: row;
+            flex-wrap: wrap;
+          }
+        }
+
+        .date-time-group {
+          display: flex;
+          gap: 0.5rem;
+          width: 100%;
+        }
+
+        @media (min-width: 768px) {
+          .date-time-group {
+            width: calc(50% - 0.25rem);
           }
         }
         
@@ -501,7 +653,7 @@ function App() {
           margin-bottom: 0.25rem;
         }
 
-        .input-field {
+        .input-field, .input-field-half {
           display: block;
           width: 100%;
           padding: 0.5rem 0.75rem;
@@ -514,7 +666,11 @@ function App() {
           transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
         }
 
-        .input-field:focus {
+        .input-field-half {
+          flex: 1;
+        }
+
+        .input-field:focus, .input-field-half:focus {
           outline: none;
           border-color: #6366f1;
           box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
