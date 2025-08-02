@@ -21,8 +21,9 @@ function App() {
 
   // Effect to handle Firebase initialization and authentication state changes.
   useEffect(() => {
-    // Paste your Firebase configuration object here.
-    // You can get this from the Firebase Console when you set up a new web app.
+    // 💡 IMPORTANT: These API keys and configuration details are hard-coded for demonstration purposes,
+    // which is what caused the GitHub alert. For production, you should use environment variables
+    // to keep these details secure and out of your codebase.
     const firebaseConfig = {
       apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
       authDomain: "project-planner-19ab6.firebaseapp.com",
@@ -33,9 +34,7 @@ function App() {
       measurementId: "G-9GPQTKTDK7"
     };
 
-    const projectId = firebaseConfig.projectId;
-
-    if (firebaseConfig.apiKey && projectId) {
+    if (firebaseConfig.apiKey && firebaseConfig.projectId) {
       try {
         const app = initializeApp(firebaseConfig);
         const firebaseAuth = getAuth(app);
@@ -57,10 +56,10 @@ function App() {
         
       } catch (error) {
         console.error("Failed to initialize Firebase:", error);
-        setMessage("Failed to initialize Firebase. Please try again later.");
+        setMessage("Failed to initialize Firebase. Please check your configuration.");
       }
     } else {
-        setMessage("Please add your Firebase configuration to the code.");
+      setMessage("Please add your Firebase configuration to the code.");
     }
   }, []);
 
@@ -240,7 +239,7 @@ function App() {
     return (
       <div className="container">
         <div className="form-card">
-          <p className="message">Loading...</p>
+          <p className="message loading">Loading...</p>
         </div>
       </div>
     );
@@ -255,7 +254,7 @@ function App() {
             <p className="info-message">
               User ID: {userId}
             </p>
-            <div id="gantt_chart" style={{ width: '100%', height: '400px' }}></div>
+            <div id="gantt_chart" className="gantt-chart"></div>
             
             <h3 className="subtitle">Add a New Task</h3>
             <form onSubmit={handleAddTask} className="task-form">
@@ -281,14 +280,16 @@ function App() {
                 className="input-field"
                 required
               />
-              <button type="submit" className="submit-button">Add Task</button>
+              <button type="submit" className="submit-button">
+                Add Task
+              </button>
             </form>
 
             <h3 className="subtitle">Your Tasks</h3>
             <ul className="task-list">
               {tasks.map(task => (
                 <li key={task.id} className="task-item">
-                  <span>{task.name}</span>
+                  <span className="task-name">{task.name}</span>
                   <button
                     onClick={() => handleDeleteTask(task.id)}
                     className="delete-button"
@@ -301,7 +302,7 @@ function App() {
 
             <button
               onClick={handleLogout}
-              className="submit-button"
+              className="submit-button logout-button"
             >
               Logout
             </button>
@@ -309,27 +310,29 @@ function App() {
         ) : (
           <div>
             <h2 className="title">
-              Register for the Gantt Chart App
+              Register or Log in
             </h2>
             <form onSubmit={handleRegister}>
               <div className="form-group">
                 <label htmlFor="email" className="label">Email address</label>
-                <div className="input-container">
-                  <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
-                </div>
+                <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
               </div>
               <div className="form-group">
                 <label htmlFor="password" className="label">Password</label>
-                <div className="input-container">
-                  <input id="password" name="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
-                </div>
+                <input id="password" name="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
               </div>
               <div>
                 <button type="submit" className="submit-button">Register</button>
               </div>
             </form>
+            <div className="divider">
+              <div className="divider-line"></div>
+              <div className="divider-text">Or continue with</div>
+              <div className="divider-line"></div>
+            </div>
             <div className="google-sign-in-container">
               <button onClick={handleGoogleSignIn} className="google-sign-in-button">
+                <svg className="google-icon" fill="currentColor" viewBox="0 0 48 48"><path d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37.9 24 37.9c-7.9 0-14.4-6.4-14.4-14.4S16.1 9.1 24 9.1c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 2.8 29.6 0 24 0 10.7 0 0 10.7 0 24s10.7 24 24 24c12.7 0 21.6-9.1 21.6-23.3 0-1.5-.2-2.9-.5-4.3z"></path></svg>
                 Sign in with Google
               </button>
             </div>
@@ -337,22 +340,15 @@ function App() {
         )}
 
         {message && (
-          <div className="message">
+          <div className={`message ${message.includes('success') ? 'success' : 'error'}`}>
             {message}
           </div>
         )}
       </div>
-
-      {/* Styles for our React component */}
       <style>
         {`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         
-        body {
-          font-family: 'Inter', sans-serif;
-          margin: 0;
-          padding: 0;
-        }
         .container {
           display: flex;
           align-items: center;
@@ -360,16 +356,37 @@ function App() {
           min-height: 100vh;
           background-color: #f3f4f6;
           padding: 1rem;
+          font-family: 'Inter', sans-serif;
         }
+        
         .form-card {
           width: 100%;
-          max-width: 448px;
           padding: 2rem;
           background-color: #ffffff;
           border-radius: 0.75rem;
           box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
           box-sizing: border-box;
+          max-width: 448px;
         }
+
+        @media (min-width: 640px) { /* sm breakpoint */
+          .form-card {
+            max-width: 512px;
+          }
+        }
+
+        @media (min-width: 768px) { /* md breakpoint */
+          .form-card {
+            max-width: 768px;
+          }
+        }
+
+        @media (min-width: 1024px) { /* lg breakpoint */
+          .form-card {
+            max-width: 1024px;
+          }
+        }
+
         .title {
           font-size: 1.875rem;
           font-weight: 800;
@@ -377,47 +394,74 @@ function App() {
           color: #111827;
           margin-bottom: 1.5rem;
         }
+
         .info-message {
           text-align: center;
           color: #6b7280;
           font-size: 0.875rem;
           margin-bottom: 1.5rem;
         }
-        .form-group {
-          margin-bottom: 1.5rem;
-        }
-        .label {
-          display: block;
-          font-size: 0.875rem;
-          font-weight: 500;
-          color: #374151;
-          margin-bottom: 0.25rem;
-        }
-        .input-container {
-          margin-top: 0.25rem;
-        }
-        .input-field {
-          display: block;
+        
+        .gantt-chart {
           width: 100%;
-          padding: 0.5rem 0.75rem;
-          border: 1px solid #d1d5db;
-          border-radius: 0.375rem;
-          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-          font-size: 0.875rem;
-          color: #1f2937;
-          box-sizing: border-box;
-          transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-          margin-bottom: 0.5rem;
+          height: 400px;
         }
-        .input-field:focus {
-          outline: none;
-          border-color: #6366f1;
-          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
+
+        .subtitle {
+          font-size: 1.25rem;
+          font-weight: 700;
+          margin-top: 2rem;
+          margin-bottom: 1rem;
         }
+
+        .task-form {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        
+        @media (min-width: 768px) {
+          .task-form {
+            flex-direction: row;
+          }
+        }
+        
+        .task-list {
+          list-style-type: none;
+          padding: 0;
+          margin: 0;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        .task-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .task-name {
+          color: #111827;
+        }
+        
+.delete-button {
+  padding: 0.25rem 0.5rem;
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.15s ease-in-out;
+}
+.delete-button:hover {
+  background-color: #dc2626;
+}
+
         .submit-button {
           width: 100%;
-          display: flex;
-          justify-content: center;
           padding: 0.5rem 1rem;
           border: 1px solid transparent;
           border-radius: 0.375rem;
@@ -436,57 +480,71 @@ function App() {
           outline: none;
           box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
         }
-        .message {
-          margin-top: 1rem;
-          text-align: center;
+
+        .logout-button {
+          margin-top: 2rem;
+          background-color: #6b7280;
+        }
+        .logout-button:hover {
+          background-color: #4b5563;
+        }
+
+        .form-group {
+          margin-bottom: 1rem;
+        }
+
+        .label {
+          display: block;
           font-size: 0.875rem;
           font-weight: 500;
-          color: #10b981;
+          color: #374151;
+          margin-bottom: 0.25rem;
         }
-        .message.error {
-          color: #ef4444;
+
+        .input-field {
+          display: block;
+          width: 100%;
+          padding: 0.5rem 0.75rem;
+          border: 1px solid #d1d5db;
+          border-radius: 0.375rem;
+          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+          font-size: 0.875rem;
+          color: #1f2937;
+          box-sizing: border-box;
+          transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
         }
-        .subtitle {
-          font-size: 1.25rem;
-          font-weight: 700;
-          margin-top: 2rem;
-          margin-bottom: 1rem;
+
+        .input-field:focus {
+          outline: none;
+          border-color: #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
         }
-        .task-form {
+        
+        .divider {
+          position: relative;
+          margin-top: 1.5rem;
+          margin-bottom: 1.5rem;
           display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          margin-bottom: 1rem;
-        }
-        .task-list {
-          list-style-type: none;
-          padding: 0;
-          margin: 0;
-        }
-        .task-item {
-          display: flex;
-          justify-content: space-between;
           align-items: center;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid #e5e7eb;
         }
-        .task-item:last-child {
-          border-bottom: none;
+        
+        .divider-line {
+          flex-grow: 1;
+          border-top: 1px solid #d1d5db;
         }
-        .delete-button {
-          padding: 0.25rem 0.5rem;
-          background-color: #ef4444;
-          color: white;
-          border: none;
-          border-radius: 0.25rem;
-          cursor: pointer;
+        
+        .divider-text {
+          padding: 0 0.5rem;
+          font-size: 0.875rem;
+          color: #6b7280;
+          background-color: white;
+          position: relative;
         }
-        .delete-button:hover {
-          background-color: #dc2626;
-        }
+
         .google-sign-in-container {
           margin-top: 1rem;
         }
+
         .google-sign-in-button {
           width: 100%;
           display: flex;
@@ -505,6 +563,31 @@ function App() {
         }
         .google-sign-in-button:hover {
           background-color: #f3f4f6;
+        }
+        
+        .google-icon {
+          width: 1.25rem;
+          height: 1.25rem;
+          margin-right: 0.5rem;
+        }
+        
+        .message {
+          margin-top: 1rem;
+          text-align: center;
+          font-size: 0.875rem;
+          font-weight: 500;
+        }
+        
+        .message.success {
+          color: #10b981;
+        }
+        
+        .message.error {
+          color: #ef4444;
+        }
+        
+        .message.loading {
+          color: #10b981;
         }
         `}
       </style>
