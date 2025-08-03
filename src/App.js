@@ -1,10 +1,23 @@
+/* global __initial_auth_token __firebase_config __app_id */
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 
 // Main application component
 function App() {
+  // 💡 IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
+  // You can find these details in your Firebase console under Project settings -> General.
+  const firebaseConfig = {
+    apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
+    authDomain: "project-planner-19ab6.firebaseapp.com",
+    projectId: "project-planner-19ab6",
+    storageBucket: "project-planner-19ab6.firebasestorage.app",
+    messagingSenderId: "476642475296",
+    appId: "1:476642475296:web:c9f48ad77f3f74c71beb45",
+    measurementId: "G-9GPQTKTDK7"
+  };
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -23,25 +36,34 @@ function App() {
     parent: '',
     predecessor: ''
   });
+  const [isLoginView, setIsLoginView] = useState(false);
+  const [savedCharts, setSavedCharts] = useState([]);
+  const [currentChartId, setCurrentChartId] = useState(null);
+  const [currentChartName, setCurrentChartName] = useState('');
+  // Corrected state to be a simple string
+  const [newChartName, setNewChartName] = useState('');
+  const [isChartLoading, setIsChartLoading] = useState(false);
 
   // Effect to handle Firebase initialization and authentication state changes.
   useEffect(() => {
-    // 💡 IMPORTANT: These API keys and configuration details are hard-coded for demonstration purposes,
-    // which is what caused the GitHub alert. For production, you should use environment variables
-    // to keep these details secure and out of your codebase.
-    const firebaseConfig = {
-      apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
-      authDomain: "project-planner-19ab6.firebaseapp.com",
-      projectId: "project-planner-19ab6",
-      storageBucket: "project-planner-19ab6.firebasestorage.app",
-      messagingSenderId: "476642475296",
-      appId: "1:476642475296:web:c9f48ad77f3f74c71beb45",
-      measurementId: "G-9GPQTKTDK7"
-    };
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+    const projectIdFromEnv = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config).projectId : '';
 
-    if (firebaseConfig.apiKey && firebaseConfig.projectId) {
+    const appConfig = { ...firebaseConfig };
+
+    // Use environment variables for Firebase config if they are available and the user has not replaced them
+    if (projectIdFromEnv && firebaseConfig.projectId === "YOUR_PROJECT_ID") {
+      const envConfig = JSON.parse(__firebase_config);
+      appConfig.apiKey = envConfig.apiKey;
+      appConfig.authDomain = envConfig.authDomain;
+      appConfig.projectId = envConfig.projectId;
+      appConfig.appId = envConfig.appId;
+      // Note: storageBucket and messagingSenderId are not always in __firebase_config
+    }
+  
+    if (appConfig.apiKey && appConfig.projectId) {
       try {
-        const app = initializeApp(firebaseConfig);
+        const app = initializeApp(appConfig);
         const firebaseAuth = getAuth(app);
         const firestoreDb = getFirestore(app);
         setDb(firestoreDb);
@@ -50,15 +72,20 @@ function App() {
         onAuthStateChanged(firebaseAuth, async (user) => {
           if (user) {
             setUserId(user.uid);
+            console.log("Authentication state changed: User is logged in with ID:", user.uid);
           } else {
             setUserId(null);
-            // Sign in anonymously to ensure a user is always present for Firestore access.
-            await signInAnonymously(firebaseAuth)
+            console.log("Authentication state changed: No user logged in.");
+            if (initialAuthToken) {
+              await signInWithCustomToken(firebaseAuth, initialAuthToken)
+                .catch((error) => console.error("Custom token sign-in failed:", error));
+            } else {
+              await signInAnonymously(firebaseAuth)
                 .catch((error) => console.error("Anonymous sign-in failed:", error));
+            }
           }
           setIsAuthReady(true);
         });
-        
       } catch (error) {
         console.error("Failed to initialize Firebase:", error);
         setMessage("Failed to initialize Firebase. Please check your configuration.");
@@ -68,23 +95,129 @@ function App() {
     }
   }, []);
 
-  // Effect to load the Google Charts library.
+  // Effect to create a sample chart if none exists.
+  useEffect(() => {
+    const createInitialChart = async () => {
+      if (db && userId) {
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
+        const chartsSnapshot = await getDocs(chartsCollectionRef);
+        if (chartsSnapshot.empty) {
+          console.log("No charts found for this user. Creating sample chart.");
+          
+          const newChartDocRef = await addDoc(chartsCollectionRef, {
+            name: "Sample Project",
+            createdAt: new Date(),
+          });
+
+          const tasksCollectionRef = collection(newChartDocRef, "tasks");
+          
+          // Define sample tasks
+          const sampleTasks = [
+            {
+              name: "Phase 1: Planning",
+              start: '2023-01-01',
+              end: '2023-01-05',
+              startTime: '09:00',
+              endTime: '17:00',
+              parent: "Project",
+              predecessor: null
+            },
+            {
+              name: "Task A",
+              start: '2023-01-06',
+              end: '2023-01-10',
+              startTime: '09:00',
+              endTime: '17:00',
+              parent: "Phase 1: Planning",
+              predecessor: "Phase 1: Planning"
+            },
+            {
+              name: "Task B",
+              start: '2023-01-11',
+              end: '2023-01-15',
+              startTime: '09:00',
+              endTime: '17:00',
+              parent: "Phase 1: Planning",
+              predecessor: "Task A"
+            },
+            {
+              name: "Phase 2: Execution",
+              start: '2023-01-16',
+              end: '2023-01-20',
+              startTime: '09:00',
+              endTime: '17:00',
+              parent: "Project",
+              predecessor: "Task B"
+            }
+          ];
+      
+          for (const task of sampleTasks) {
+            await addDoc(tasksCollectionRef, task);
+          }
+          setMessage("Welcome! A sample chart has been created for you.");
+        }
+      }
+    };
+    if (isAuthReady) {
+      createInitialChart();
+    }
+  }, [db, userId, isAuthReady]);
+
+
+  // Effect to load the Google Charts and html2canvas libraries.
   useEffect(() => {
     if (userId) {
-      const script = document.createElement('script');
-      script.src = 'https://www.gstatic.com/charts/loader.js';
-      script.onload = () => {
-        window.google.charts.load('current', {'packages':['gantt']});
+      const loadScripts = () => {
+        const chartsScript = document.createElement('script');
+        chartsScript.src = 'https://www.gstatic.com/charts/loader.js';
+        chartsScript.onload = () => {
+          window.google.charts.load('current', { 'packages': ['gantt'] });
+        };
+        document.head.appendChild(chartsScript);
+
+        const html2canvasScript = document.createElement('script');
+        html2canvasScript.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
+        document.head.appendChild(html2canvasScript);
       };
-      document.head.appendChild(script);
+      
+      if (!document.querySelector('script[src*="charts.loader.js"]')) {
+        loadScripts();
+      }
     }
   }, [userId]);
 
-  // Effect to fetch and listen to tasks from Firestore.
+  // Effect to fetch and listen to saved charts
   useEffect(() => {
     if (db && userId) {
-      const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
       
+      const unsubscribe = onSnapshot(chartsCollectionRef, (querySnapshot) => {
+        const fetchedCharts = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          name: doc.data().name
+        }));
+        setSavedCharts(fetchedCharts);
+        console.log(`Found ${fetchedCharts.length} saved charts.`);
+        if (fetchedCharts.length > 0 && !currentChartId) {
+          // Load the first chart by default
+          setCurrentChartId(fetchedCharts[0].id);
+          setCurrentChartName(fetchedCharts[0].name);
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [db, userId, currentChartId]);
+
+  // Effect to fetch and listen to tasks from the currently selected chart.
+  useEffect(() => {
+    if (db && userId && currentChartId) {
+      setIsChartLoading(true);
+      console.log(`Fetching tasks for chart ID: ${currentChartId} for user ID: ${userId}`);
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const tasksCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks");
+
       const unsubscribe = onSnapshot(tasksCollectionRef, (querySnapshot) => {
         const fetchedTasks = {};
         const children = [];
@@ -101,6 +234,8 @@ function App() {
           fetchedTasks[doc.id] = task;
           children.push(task);
         });
+
+        console.log(`Found ${children.length} tasks in current chart.`);
         
         // Calculate parent tasks and relationships
         const allTasks = Object.values(fetchedTasks);
@@ -128,38 +263,39 @@ function App() {
 
         setTasks(children);
         setParentTasks(finalParentTasks);
+        setIsChartLoading(false);
       });
-      
-      return () => unsubscribe();
+
+      return () => {
+        console.log(`Unsubscribing from Firestore tasks listener for chart ID: ${currentChartId}`);
+        unsubscribe();
+      };
+    } else {
+      setTasks([]); // Clear tasks if no chart is selected
+      setIsChartLoading(false);
     }
-  }, [db, userId]);
+  }, [db, userId, currentChartId]);
 
   // Effect to handle predecessor/successor logic.
   useEffect(() => {
-    if (db && userId && tasks.length > 0) {
-      // Loop through all tasks to find successors
+    if (db && userId && currentChartId && tasks.length > 0) {
       tasks.forEach(successorTask => {
         if (successorTask.predecessor) {
-          const predecessorTask = tasks.find(t => t.id === successorTask.predecessor);
+          const predecessorTask = tasks.find(t => t.name === successorTask.predecessor);
           if (predecessorTask) {
-            const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const tasksCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks");
             const successorTaskDocRef = doc(tasksCollectionRef, successorTask.id);
-            
-            // Check if the predecessor's end time is later than the successor's start time
-            // and adjust if necessary.
-            if (predecessorTask.end > successorTask.start) {
+
+            if (predecessorTask.end.getTime() > successorTask.start.getTime()) {
               const diff = predecessorTask.end.getTime() - successorTask.start.getTime();
               const newEndDate = new Date(successorTask.end.getTime() + diff);
 
-              // Update the successor task in Firestore.
               updateDoc(successorTaskDocRef, {
-                start: predecessorTask.end,
-                end: newEndDate,
-                // The date fields are stored as strings for simplicity
-                start: predecessorTask.end.toISOString().slice(0,10),
-                startTime: predecessorTask.end.toTimeString().slice(0,5),
-                end: newEndDate.toISOString().slice(0,10),
-                endTime: newEndDate.toTimeString().slice(0,5),
+                start: predecessorTask.end.toISOString().slice(0, 10),
+                startTime: predecessorTask.end.toTimeString().slice(0, 5),
+                end: newEndDate.toISOString().slice(0, 10),
+                endTime: newEndDate.toTimeString().slice(0, 5),
               }).catch(error => {
                 console.error("Error updating successor task:", error);
               });
@@ -168,7 +304,7 @@ function App() {
         }
       });
     }
-  }, [tasks, db, userId]);
+  }, [tasks, db, userId, currentChartId]);
 
   // Effect to draw the Gantt chart whenever tasks or the Google Charts library are ready.
   useEffect(() => {
@@ -192,12 +328,12 @@ function App() {
     parentTasks.forEach(parentTask => {
       const duration = parentTask.end.getTime() - parentTask.start.getTime();
       data.addRow([
-        parentTask.id,
+        parentTask.name,
         parentTask.name,
         parentTask.start,
         parentTask.end,
         duration,
-        0, // Parent tasks are not a single completion
+        0,
         null
       ]);
     });
@@ -207,12 +343,12 @@ function App() {
       const duration = task.end.getTime() - task.start.getTime();
       const dependencies = task.predecessor ? task.predecessor : null;
       data.addRow([
-        task.id,
+        task.name,
         task.name,
         task.start,
         task.end,
         duration,
-        100, // Child tasks are considered 100% for this example
+        100,
         dependencies
       ]);
     });
@@ -248,7 +384,8 @@ function App() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      const userDocRef = doc(db, "artifacts", db.app.options.projectId, "users", user.uid, "userData", "profile");
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const userDocRef = doc(db, "artifacts", appId, "users", user.uid, "userData", "profile");
       await setDoc(userDocRef, {
         email: user.email,
         createdAt: new Date()
@@ -257,6 +394,7 @@ function App() {
       setMessage(`Registration successful! Welcome, ${user.email}.`);
       setEmail('');
       setPassword('');
+      setIsLoginView(true);
     } catch (error) {
       console.error("Registration failed:", error);
       if (error.code === 'auth/email-already-in-use') {
@@ -267,13 +405,27 @@ function App() {
     }
   };
 
+  // Handle user login with email and password.
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setMessage('Login successful!');
+      setEmail('');
+      setPassword('');
+    } catch (error) {
+      console.error("Login failed:", error);
+      setMessage('Login failed. Please check your email and password.');
+    }
+  };
+
   // Handle Google Sign-in.
   const handleGoogleSignIn = async () => {
     setMessage('');
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      // The onAuthStateChanged listener will handle the rest.
       setMessage('Signed in with Google successfully!');
     } catch (error) {
       console.error("Google Sign-in failed:", error);
@@ -285,8 +437,10 @@ function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setSavedCharts([]);
+      setCurrentChartId(null);
+      setCurrentChartName('');
       setMessage('You have been logged out.');
-      setTasks([]);
     } catch (error) {
       console.error("Logout failed:", error);
       setMessage('Logout failed. Please try again.');
@@ -296,14 +450,14 @@ function App() {
   // Handle adding a new task to Firestore.
   const handleAddTask = async (e) => {
     e.preventDefault();
-    if (!newTask.name || !newTask.start || !newTask.end) {
-      // Replaced alert with a message box for better UX
-      setMessage('Please fill out all task fields.');
+    if (!newTask.name || !newTask.start || !newTask.end || !currentChartId) {
+      setMessage('Please fill out all task fields and select a chart.');
       return;
     }
 
     try {
-      const tasksCollectionRef = collection(db, "artifacts", db.app.options.projectId, "users", userId, "tasks");
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const tasksCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks");
       await addDoc(tasksCollectionRef, {
         name: newTask.name,
         start: newTask.start,
@@ -315,11 +469,11 @@ function App() {
         createdAt: new Date()
       });
       setMessage('Task added successfully!');
-      setNewTask({ 
-        name: '', 
-        start: '', 
-        end: '', 
-        startTime: '00:00', 
+      setNewTask({
+        name: '',
+        start: '',
+        end: '',
+        startTime: '00:00',
         endTime: '00:00',
         parent: '',
         predecessor: ''
@@ -332,8 +486,13 @@ function App() {
 
   // Handle deleting a task.
   const handleDeleteTask = async (taskId) => {
+    if (!currentChartId) {
+      setMessage("Please select a chart to delete a task from.");
+      return;
+    }
     try {
-      const taskDocRef = doc(db, "artifacts", db.app.options.projectId, "users", userId, "tasks", taskId);
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const taskDocRef = doc(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks", taskId);
       await deleteDoc(taskDocRef);
       setMessage('Task deleted successfully!');
     } catch (error) {
@@ -341,6 +500,96 @@ function App() {
       setMessage('Error deleting task. Please try again.');
     }
   };
+
+  // Function to create a new chart
+  const handleCreateNewChart = async () => {
+    // Corrected check: newChartName is now a string.
+    if (!newChartName) {
+      setMessage("Please enter a name for the new chart.");
+      return;
+    }
+    try {
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
+      const newChartDocRef = await addDoc(chartsCollectionRef, {
+        name: newChartName, // Corrected: use the simple string state
+        createdAt: new Date(),
+      });
+      setTasks([]); // Clear tasks when creating a new chart
+      setParentTasks([]); // Clear parent tasks
+      setCurrentChartId(newChartDocRef.id);
+      setCurrentChartName(newChartName);
+      setNewChartName('');
+      setMessage(`Chart "${newChartName}" created successfully!`);
+    } catch (error) {
+      console.error("Error creating new chart:", error);
+      setMessage("Failed to create new chart. Please try again.");
+    }
+  };
+
+  // Function to load a selected chart
+  const handleLoadChart = (chartId, chartName) => {
+    setTasks([]); // Clear tasks when loading a new chart
+    setParentTasks([]); // Clear parent tasks
+    setCurrentChartId(chartId);
+    setCurrentChartName(chartName);
+    setMessage(`Chart "${chartName}" loaded.`);
+  };
+
+  // Function to export the Gantt chart as a PNG image.
+  const handleExportImage = () => {
+    const chartElement = document.getElementById('gantt_chart');
+    if (chartElement && window.html2canvas) {
+      window.html2canvas(chartElement).then(canvas => {
+        const image = canvas.toDataURL("image/png").replace("image/png", "image/octet-stream");
+        const link = document.createElement('a');
+        link.download = `${currentChartName || 'gantt_chart'}.png`;
+        link.href = image;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }).catch(err => {
+        console.error("Failed to export chart image:", err);
+        setMessage("Failed to export chart image. Please try again.");
+      });
+    } else {
+      setMessage("Gantt chart element or html2canvas library not found.");
+    }
+  };
+
+  // Function to download tasks as a CSV file.
+  const handleDownloadCSV = () => {
+    if (tasks.length === 0) {
+      setMessage("No tasks to download.");
+      return;
+    }
+
+    const headers = ["Task Name", "Start Date", "End Date", "Parent Task", "Predecessor Task"];
+    const rows = tasks.map(task => [
+      `"${task.name.replace(/"/g, '""')}"`,
+      task.start.toISOString().slice(0, 10),
+      task.end.toISOString().slice(0, 10),
+      `"${(task.parent || "").replace(/"/g, '""')}"`,
+      `"${(task.predecessor || "").replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${currentChartName || 'gantt_tasks'}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
 
   if (!isAuthReady) {
     return (
@@ -356,114 +605,205 @@ function App() {
     <div className="container">
       <div className="form-card">
         {userId ? (
-          <div>
-            <h2 className="title">Gantt Chart for User ID: {userId}</h2>
-            <p className="info-message">
-              User ID: {userId}
-            </p>
-            <div id="gantt_chart" className="gantt-chart"></div>
+          <div className="main-content">
+            <div className="header-container">
+                <h2 className="title">{currentChartName || 'Select or Create a Chart'}</h2>
+                <button
+                    onClick={handleLogout}
+                    className="submit-button logout-button"
+                >
+                    Logout
+                </button>
+            </div>
             
-            <h3 className="subtitle">Add a New Task</h3>
-            <form onSubmit={handleAddTask} className="task-form">
-              <input
-                type="text"
-                placeholder="Task Name"
-                value={newTask.name}
-                onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
-                className="input-field"
-                required
-              />
-              <input
-                type="text"
-                placeholder="Parent Task ID (Optional)"
-                value={newTask.parent}
-                onChange={(e) => setNewTask({ ...newTask, parent: e.target.value })}
-                className="input-field"
-              />
-              <input
-                type="text"
-                placeholder="Predecessor Task ID (Optional)"
-                value={newTask.predecessor}
-                onChange={(e) => setNewTask({ ...newTask, predecessor: e.target.value })}
-                className="input-field"
-              />
-              <div className="date-time-group">
-                <input
-                  type="date"
-                  value={newTask.start}
-                  onChange={(e) => setNewTask({ ...newTask, start: e.target.value })}
-                  className="input-field-half"
-                  required
-                />
-                <input
-                  type="time"
-                  value={newTask.startTime}
-                  onChange={(e) => setNewTask({ ...newTask, startTime: e.target.value })}
-                  className="input-field-half"
-                  required
-                />
-              </div>
-              <div className="date-time-group">
-                <input
-                  type="date"
-                  value={newTask.end}
-                  onChange={(e) => setNewTask({ ...newTask, end: e.target.value })}
-                  className="input-field-half"
-                  required
-                />
-                <input
-                  type="time"
-                  value={newTask.endTime}
-                  onChange={(e) => setNewTask({ ...newTask, endTime: e.target.value })}
-                  className="input-field-half"
-                  required
-                />
-              </div>
-              <button type="submit" className="submit-button">
-                Add Task
-              </button>
-            </form>
+            <p className="info-message">User ID: {userId}</p>
 
-            <h3 className="subtitle">Your Tasks</h3>
-            <ul className="task-list">
-              {tasks.map(task => (
-                <li key={task.id} className="task-item">
-                  <span className="task-name">{task.name} (ID: {task.id})</span>
-                  <button
-                    onClick={() => handleDeleteTask(task.id)}
-                    className="delete-button"
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <div className="charts-list-container">
+                <h3 className="subtitle">Your Charts</h3>
+                <ul className="charts-list">
+                    {savedCharts.map(chart => (
+                        <li key={chart.id} className="chart-tile">
+                            <button
+                                onClick={() => handleLoadChart(chart.id, chart.name)}
+                                className={`chart-button ${currentChartId === chart.id ? 'active' : ''}`}
+                            >
+                                {chart.name}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            </div>
 
-            <button
-              onClick={handleLogout}
-              className="submit-button logout-button"
-            >
-              Logout
-            </button>
+            <div className="new-chart-container">
+                <input
+                    type="text"
+                    placeholder="New chart name"
+                    // Corrected value and onChange to handle a simple string state
+                    value={newChartName}
+                    onChange={(e) => setNewChartName(e.target.value)}
+                    className="input-field"
+                />
+                <button onClick={handleCreateNewChart} className="submit-button create-button">
+                    Create New Chart
+                </button>
+            </div>
+
+            {currentChartId && (
+                <>
+                {isChartLoading ? (
+                    <p className="message loading">Loading chart...</p>
+                ) : tasks.length > 0 ? (
+                    <div id="gantt_chart" className="gantt-chart"></div>
+                ) : (
+                    <p className="message error">No tasks found. Add a new task to get started.</p>
+                )}
+
+                <div className="export-buttons-container">
+                    <button
+                        onClick={handleExportImage}
+                        className="submit-button export-button"
+                    >
+                        Export Chart as Image
+                    </button>
+                    <button
+                        onClick={handleDownloadCSV}
+                        className="submit-button export-button"
+                    >
+                        Download Tasks as CSV
+                    </button>
+                </div>
+                
+                <h3 className="subtitle">Add a New Task to "{currentChartName}"</h3>
+                <form onSubmit={handleAddTask} className="task-form">
+                    <input
+                        type="text"
+                        placeholder="Task Name"
+                        value={newTask.name}
+                        onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
+                        className="input-field"
+                        required
+                    />
+                    <input
+                        type="text"
+                        placeholder="Parent Task Name (Optional)"
+                        value={newTask.parent}
+                        onChange={(e) => setNewTask({ ...newTask, parent: e.target.value })}
+                        className="input-field"
+                    />
+                    <input
+                        type="text"
+                        placeholder="Predecessor Task Name (Optional)"
+                        value={newTask.predecessor}
+                        onChange={(e) => setNewTask({ ...newTask, predecessor: e.target.value })}
+                        className="input-field"
+                    />
+                    <div className="date-time-group">
+                        <input
+                            type="date"
+                            value={newTask.start}
+                            onChange={(e) => setNewTask({ ...newTask, start: e.target.value })}
+                            className="input-field-half"
+                            required
+                        />
+                        <input
+                            type="time"
+                            value={newTask.startTime}
+                            onChange={(e) => setNewTask({ ...newTask, startTime: e.target.value })}
+                            className="input-field-half"
+                            required
+                        />
+                    </div>
+                    <div className="date-time-group">
+                        <input
+                            type="date"
+                            value={newTask.end}
+                            onChange={(e) => setNewTask({ ...newTask, end: e.target.value })}
+                            className="input-field-half"
+                            required
+                        />
+                        <input
+                            type="time"
+                            value={newTask.endTime}
+                            onChange={(e) => setNewTask({ ...newTask, endTime: e.target.value })}
+                            className="input-field-half"
+                            required
+                        />
+                    </div>
+                    <button type="submit" className="submit-button">
+                        Add Task
+                    </button>
+                </form>
+
+                <h3 className="subtitle">Tasks in "{currentChartName}"</h3>
+                <ul className="task-list">
+                    {tasks.map(task => (
+                        <li key={task.id} className="task-item">
+                            <span className="task-name">{task.name}</span>
+                            <button
+                                onClick={() => handleDeleteTask(task.id)}
+                                className="delete-button"
+                            >
+                                Delete
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+                </>
+            )}
           </div>
         ) : (
           <div>
-            <h2 className="title">
-              Register or Log in
-            </h2>
-            <form onSubmit={handleRegister}>
-              <div className="form-group">
-                <label htmlFor="email" className="label">Email address</label>
-                <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
-              </div>
-              <div className="form-group">
-                <label htmlFor="password" className="label">Password</label>
-                <input id="password" name="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
-              </div>
-              <div>
-                <button type="submit" className="submit-button">Register</button>
-              </div>
-            </form>
+            <div className="toggle-container">
+                <button
+                    className={`toggle-button ${!isLoginView ? 'active' : ''}`}
+                    onClick={() => setIsLoginView(false)}
+                >
+                    Register
+                </button>
+                <button
+                    className={`toggle-button ${isLoginView ? 'active' : ''}`}
+                    onClick={() => setIsLoginView(true)}
+                >
+                    Login
+                </button>
+            </div>
+            
+            {isLoginView ? (
+                <div>
+                    <h2 className="title">Log in</h2>
+                    <form onSubmit={handleLogin}>
+                        <div className="form-group">
+                            <label htmlFor="email" className="label">Email address</label>
+                            <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
+                        </div>
+                        <div className="form-group">
+                            <label htmlFor="password" className="label">Password</label>
+                            <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
+                        </div>
+                        <div>
+                            <button type="submit" className="submit-button">Log in</button>
+                        </div>
+                    </form>
+                </div>
+            ) : (
+                <div>
+                    <h2 className="title">Register</h2>
+                    <form onSubmit={handleRegister}>
+                        <div className="form-group">
+                            <label htmlFor="email" className="label">Email address</label>
+                            <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
+                        </div>
+                        <div className="form-group">
+                            <label htmlFor="password" className="label">Password</label>
+                            <input id="password" name="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
+                        </div>
+                        <div>
+                            <button type="submit" className="submit-button">Register</button>
+                        </div>
+                    </form>
+                </div>
+            )}
+            
             <div className="divider">
               <div className="divider-line"></div>
               <div className="divider-text">Or continue with</div>
@@ -479,7 +819,7 @@ function App() {
         )}
 
         {message && (
-          <div className={`message ${message.includes('success') ? 'success' : 'error'}`}>
+          <div className={`message ${message.includes('success') || message.includes('Welcome') ? 'success' : 'error'}`}>
             {message}
           </div>
         )}
@@ -526,12 +866,28 @@ function App() {
           }
         }
 
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
         .title {
           font-size: 1.875rem;
           font-weight: 800;
           text-align: center;
           color: #111827;
-          margin-bottom: 1.5rem;
+          flex-grow: 1;
+        }
+        .logout-button {
+            margin-left: 1rem;
+            width: auto;
+            max-width: 120px; /* Fix: Constrain button width */
+            background-color: #ef4444;
+        }
+        .logout-button:hover {
+            background-color: #dc2626;
         }
 
         .info-message {
@@ -546,11 +902,88 @@ function App() {
           height: 400px;
         }
 
+        .export-buttons-container {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+
+        @media (min-width: 768px) {
+          .export-buttons-container {
+            flex-direction: row;
+            justify-content: space-around;
+          }
+        }
+        
+        .export-button {
+          width: 100%;
+          background-color: #10b981;
+        }
+        .export-button:hover {
+          background-color: #059669;
+        }
+
         .subtitle {
           font-size: 1.25rem;
           font-weight: 700;
           margin-top: 2rem;
           margin-bottom: 1rem;
+        }
+        
+        .charts-list-container {
+            margin-top: 1rem;
+        }
+
+        .charts-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .chart-tile {
+            flex-grow: 1;
+        }
+
+        .chart-button {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            background-color: #f9fafb;
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        .chart-button:hover {
+            background-color: #e5e7eb;
+        }
+        
+.chart-button.active {
+            background-color: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+        
+        .new-chart-container {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            align-items: center;
+        }
+        
+        .create-button {
+            flex-shrink: 0;
+            margin-left: 1rem;
+            width: auto;
+            max-width: 150px; /* Fix: Constrain button width */
+            background-color: #ef4444;
         }
 
         .task-form {
@@ -598,19 +1031,19 @@ function App() {
           color: #111827;
         }
         
-.delete-button {
-  padding: 0.25rem 0.5rem;
-  background-color: #ef4444;
-  color: white;
-  border: none;
-  border-radius: 0.25rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: background-color 0.15s ease-in-out;
-}
-.delete-button:hover {
-  background-color: #dc2626;
-}
+        .delete-button {
+          padding: 0.25rem 0.5rem;
+          background-color: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 0.25rem;
+          cursor: pointer;
+          font-size: 0.875rem;
+          transition: background-color 0.15s ease-in-out;
+        }
+        .delete-button:hover {
+          background-color: #dc2626;
+        }
 
         .submit-button {
           width: 100%;
@@ -631,14 +1064,6 @@ function App() {
         .submit-button:focus {
           outline: none;
           box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
-        }
-
-        .logout-button {
-          margin-top: 2rem;
-          background-color: #6b7280;
-        }
-        .logout-button:hover {
-          background-color: #4b5563;
         }
 
         .form-group {
@@ -744,6 +1169,35 @@ function App() {
         
         .message.loading {
           color: #10b981;
+        }
+        
+        .toggle-container {
+            display: flex;
+            width: 100%;
+            margin-bottom: 1rem;
+            border-radius: 0.375rem;
+            overflow: hidden;
+            border: 1px solid #d1d5db;
+        }
+        
+        .toggle-button {
+            flex-grow: 1;
+            padding: 0.5rem;
+            background-color: #f9fafb;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            color: #4b5563;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        }
+        
+        .toggle-button.active {
+            background-color: #4f46e5;
+            color: white;
+        }
+        
+        .toggle-button:not(.active):hover {
+            background-color: #e5e7eb;
         }
         `}
       </style>
