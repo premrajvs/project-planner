@@ -304,6 +304,8 @@ function App() {
     data.addColumn('number', 'Percent Complete');
     data.addColumn('string', 'Dependencies');
 
+    const parentNames = new Set(parentTasks.map(p => p.name));
+
     parentTasks.forEach(parentTask => {
       const duration = parentTask.end.getTime() - parentTask.start.getTime();
       data.addRow([
@@ -312,23 +314,27 @@ function App() {
         parentTask.start,
         parentTask.end,
         duration,
-        0,
+        0, // Assuming parents are 0% complete as they are containers
         null
       ]);
     });
 
     tasks.forEach(task => {
-      const duration = task.end.getTime() - task.start.getTime();
-      const dependencies = task.predecessor ? task.predecessor : null;
-      data.addRow([
-        task.name,
-        task.name,
-        task.start,
-        task.end,
-        duration,
-        100,
-        dependencies
-      ]);
+      // Only draw tasks that are not themselves parents.
+      // Parent tasks are already drawn with calculated dates.
+      if (!parentNames.has(task.name)) {
+        const duration = task.end.getTime() - task.start.getTime();
+        const dependencies = task.predecessor ? task.predecessor : null;
+        data.addRow([
+          task.name,
+          task.name,
+          task.start,
+          task.end,
+          duration,
+          100,
+          dependencies
+        ]);
+      }
     });
 
     const options = {
