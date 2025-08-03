@@ -2,21 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
 
 // Main application component
 function App() {
   // 💡 IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
   // You can find these details in your Firebase console under Project settings -> General.
-  const firebaseConfig = {
-    apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
-    authDomain: "project-planner-19ab6.firebaseapp.com",
-    projectId: "project-planner-19ab6",
-    storageBucket: "project-planner-19ab6.firebasestorage.app",
-    messagingSenderId: "476642475296",
-    appId: "1:476642475296:web:c9f48ad77f3f74c71beb45",
-    measurementId: "G-9GPQTKTDK7"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
+  authDomain: "project-planner-19ab6.firebaseapp.com",
+  projectId: "project-planner-19ab6",
+  storageBucket: "project-planner-19ab6.firebasestorage.app",
+  messagingSenderId: "476642475296",
+  appId: "1:476642475296:web:c9f48ad77f3f74c71beb45",
+  measurementId: "G-9GPQTKTDK7"
+};
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
