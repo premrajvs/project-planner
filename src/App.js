@@ -2,21 +2,23 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, writeBatch, connectFirestoreEmulator } from 'firebase/firestore';
+import { connectAuthEmulator } from 'firebase/auth';
 
 // Main application component
 function App() {
   // 💡 IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
   // You can find these details in your Firebase console under Project settings -> General.
-const firebaseConfig = {
-  apiKey: "AIzaSyCNPnOMQjIZUcPVXkt2CEpRP0uHwma_Dbg",
-  authDomain: "project-planner-19ab6.firebaseapp.com",
-  projectId: "project-planner-19ab6",
-  storageBucket: "project-planner-19ab6.firebasestorage.app",
-  messagingSenderId: "476642475296",
-  appId: "1:476642475296:web:c9f48ad77f3f74c71beb45",
-  measurementId: "G-9GPQTKTDK7"
-};
+  // It's recommended to use environment variables for this configuration.
+  const firebaseConfig = {
+    apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+    authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.REACT_APP_FIREBASE_APP_ID,
+    measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+  };
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,6 +68,17 @@ const firebaseConfig = {
         const firebaseAuth = getAuth(app);
         const firestoreDb = getFirestore(app);
         setDb(firestoreDb);
+
+        // To use the local emulator for development, uncomment the following lines.
+        // This will direct all Firestore and Auth requests to your local emulators.
+        // Make sure you are running the emulators with `firebase emulators:start`
+        // if (window.location.hostname === "localhost") {
+        //   console.log("Connecting to local Firebase emulators...");
+        //   connectFirestoreEmulator(firestoreDb, 'localhost', 8080);
+        //   // You can also connect to the Auth emulator if you use it
+        //   connectAuthEmulator(firebaseAuth, "http://localhost:9099");
+        // }
+
         setAuth(firebaseAuth);
 
         onAuthStateChanged(firebaseAuth, async (user) => {
@@ -136,66 +149,51 @@ const firebaseConfig = {
         if (fetchedCharts.length > 0 && !currentChartId) {
           setCurrentChartId(fetchedCharts[0].id);
           setCurrentChartName(fetchedCharts[0].name);
-        } else if (querySnapshot.empty) {
+        } else if (querySnapshot.empty && !currentChartId) { // Only create sample if no chart is selected
           console.log("No charts found for this user. Creating sample chart.");
           
-          const newChartDocRef = await addDoc(chartsCollectionRef, {
-            name: "Sample Project",
-            createdAt: new Date(),
-            modifiedAt: new Date(),
-          });
+          try {
+            const batch = writeBatch(db);
+            const newChartRef = doc(chartsCollectionRef);
+            
+            batch.set(newChartRef, {
+              name: "Sample Project",
+              createdAt: new Date(),
+              modifiedAt: new Date(),
+            });
 
-          const tasksCollectionRef = collection(newChartDocRef, "tasks");
-          
-          const sampleTasks = [
-            {
-              name: "Phase 1: Planning",
-              start: '2023-01-01',
-              end: '2023-01-05',
-              startTime: '09:00',
-              endTime: '17:00',
-              parent: "Project",
-              predecessor: null
-            },
-            {
-              name: "Task A",
-              start: '2023-01-06',
-              end: '2023-01-10',
-              startTime: '09:00',
-              endTime: '17:00',
-              parent: "Phase 1: Planning",
-              predecessor: "Phase 1: Planning"
-            },
-            {
-              name: "Task B",
-              start: '2023-01-11',
-              end: '2023-01-15',
-              startTime: '09:00',
-              endTime: '17:00',
-              parent: "Phase 1: Planning",
-              predecessor: "Task A"
-            },
-            {
-              name: "Phase 2: Execution",
-              start: '2023-01-16',
-              end: '2023-01-20',
-              startTime: '09:00',
-              endTime: '17:00',
-              parent: "Project",
-              predecessor: "Task B"
-            }
-          ];
-      
-          for (const task of sampleTasks) {
-            await addDoc(tasksCollectionRef, task);
+            const tasksCollectionRef = collection(newChartRef, "tasks");
+            const sampleTasks = [
+              { name: "Phase 1: Planning", start: '2023-01-01', end: '2023-01-05', startTime: '09:00', endTime: '17:00', parent: "Project", predecessor: null },
+              { name: "Task A", start: '2023-01-06', end: '2023-01-10', startTime: '09:00', endTime: '17:00', parent: "Phase 1: Planning", predecessor: "Phase 1: Planning" },
+              { name: "Task B", start: '2023-01-11', end: '2023-01-15', startTime: '09:00', endTime: '17:00', parent: "Phase 1: Planning", predecessor: "Task A" },
+              { name: "Phase 2: Execution", start: '2023-01-16', end: '2023-01-20', startTime: '09:00', endTime: '17:00', parent: "Project", predecessor: "Task B" }
+            ];
+
+            sampleTasks.forEach(taskData => {
+              const taskRef = doc(tasksCollectionRef);
+              const { start, end, startTime, endTime, ...rest } = taskData;
+              const startDateTime = new Date(`${start}T${startTime}`);
+              const endDateTime = new Date(`${end}T${endTime}`);
+              batch.set(taskRef, {
+                ...rest,
+                start: startDateTime,
+                end: endDateTime,
+              });
+            });
+
+            await batch.commit();
+            setMessage("Welcome! A sample chart has been created for you.");
+          } catch (error) {
+            console.error("Error creating sample chart with batch write:", error);
+            setMessage("Could not create a sample chart. Please try creating one manually.");
           }
-          setMessage("Welcome! A sample chart has been created for you.");
         }
       });
       return () => unsubscribe();
     }
     // END OF CHANGES
-  }, [db, userId, currentChartId]);
+  }, [db, userId]);
 
   // Effect to fetch and listen to tasks from the currently selected chart.
   useEffect(() => {
@@ -213,8 +211,8 @@ const firebaseConfig = {
           const task = {
             id: doc.id,
             name: data.name,
-            start: new Date(`${data.start}T${data.startTime}:00`),
-            end: new Date(`${data.end}T${data.endTime}:00`),
+            start: data.start.toDate(), // Convert Firestore Timestamp to Date
+            end: data.end.toDate(),     // Convert Firestore Timestamp to Date
             parent: data.parent || null,
             predecessor: data.predecessor || null
           };
@@ -279,10 +277,8 @@ const firebaseConfig = {
               const newEndDate = new Date(successorTask.end.getTime() + diff);
 
               updateDoc(successorTaskDocRef, {
-                start: predecessorTask.end.toISOString().slice(0, 10),
-                startTime: predecessorTask.end.toTimeString().slice(0, 5),
-                end: newEndDate.toISOString().slice(0, 10),
-                endTime: newEndDate.toTimeString().slice(0, 5),
+                start: predecessorTask.end,
+                end: newEndDate,
               }).catch(error => {
                 console.error("Error updating successor task:", error);
               });
@@ -443,12 +439,12 @@ const firebaseConfig = {
     try {
       const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
       const tasksCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks");
+      const startDateTime = new Date(`${newTask.start}T${newTask.startTime}`);
+      const endDateTime = new Date(`${newTask.end}T${newTask.endTime}`);
       await addDoc(tasksCollectionRef, {
         name: newTask.name,
-        start: newTask.start,
-        end: newTask.end,
-        startTime: newTask.startTime,
-        endTime: newTask.endTime,
+        start: startDateTime,
+        end: endDateTime,
         parent: newTask.parent || null,
         predecessor: newTask.predecessor || null,
         createdAt: new Date()
