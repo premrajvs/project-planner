@@ -40,7 +40,6 @@ function App() {
   const [savedCharts, setSavedCharts] = useState([]);
   const [currentChartId, setCurrentChartId] = useState(null);
   const [currentChartName, setCurrentChartName] = useState('');
-  // Corrected state to be a simple string
   const [newChartName, setNewChartName] = useState('');
   const [isChartLoading, setIsChartLoading] = useState(false);
 
@@ -95,24 +94,59 @@ function App() {
     }
   }, []);
 
-  // Effect to create a sample chart if none exists.
+  // Effect to load the Google Charts and html2canvas libraries.
   useEffect(() => {
-    const createInitialChart = async () => {
-      if (db && userId) {
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
-        const chartsSnapshot = await getDocs(chartsCollectionRef);
-        if (chartsSnapshot.empty) {
+    if (userId) {
+      const loadScripts = () => {
+        const chartsScript = document.createElement('script');
+        chartsScript.src = 'https://www.gstatic.com/charts/loader.js';
+        chartsScript.onload = () => {
+          window.google.charts.load('current', { 'packages': ['gantt'] });
+        };
+        document.head.appendChild(chartsScript);
+
+        const html2canvasScript = document.createElement('script');
+        html2canvasScript.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
+        document.head.appendChild(html2canvasScript);
+      };
+      
+      if (!document.querySelector('script[src*="charts.loader.js"]')) {
+        loadScripts();
+      }
+    }
+  }, [userId]);
+
+  // Effect to fetch and listen to saved charts
+  useEffect(() => {
+    // START OF CHANGES
+    if (db && userId) {
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
+      
+      const unsubscribe = onSnapshot(chartsCollectionRef, async (querySnapshot) => {
+        const fetchedCharts = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          name: doc.data().name,
+          createdAt: doc.data().createdAt?.toDate() || null,
+          modifiedAt: doc.data().modifiedAt?.toDate() || null
+        }));
+        setSavedCharts(fetchedCharts);
+        console.log(`Found ${fetchedCharts.length} saved charts.`);
+        
+        if (fetchedCharts.length > 0 && !currentChartId) {
+          setCurrentChartId(fetchedCharts[0].id);
+          setCurrentChartName(fetchedCharts[0].name);
+        } else if (querySnapshot.empty) {
           console.log("No charts found for this user. Creating sample chart.");
           
           const newChartDocRef = await addDoc(chartsCollectionRef, {
             name: "Sample Project",
             createdAt: new Date(),
+            modifiedAt: new Date(),
           });
 
           const tasksCollectionRef = collection(newChartDocRef, "tasks");
           
-          // Define sample tasks
           const sampleTasks = [
             {
               name: "Phase 1: Planning",
@@ -157,57 +191,10 @@ function App() {
           }
           setMessage("Welcome! A sample chart has been created for you.");
         }
-      }
-    };
-    if (isAuthReady) {
-      createInitialChart();
-    }
-  }, [db, userId, isAuthReady]);
-
-
-  // Effect to load the Google Charts and html2canvas libraries.
-  useEffect(() => {
-    if (userId) {
-      const loadScripts = () => {
-        const chartsScript = document.createElement('script');
-        chartsScript.src = 'https://www.gstatic.com/charts/loader.js';
-        chartsScript.onload = () => {
-          window.google.charts.load('current', { 'packages': ['gantt'] });
-        };
-        document.head.appendChild(chartsScript);
-
-        const html2canvasScript = document.createElement('script');
-        html2canvasScript.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
-        document.head.appendChild(html2canvasScript);
-      };
-      
-      if (!document.querySelector('script[src*="charts.loader.js"]')) {
-        loadScripts();
-      }
-    }
-  }, [userId]);
-
-  // Effect to fetch and listen to saved charts
-  useEffect(() => {
-    if (db && userId) {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
-      
-      const unsubscribe = onSnapshot(chartsCollectionRef, (querySnapshot) => {
-        const fetchedCharts = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().name
-        }));
-        setSavedCharts(fetchedCharts);
-        console.log(`Found ${fetchedCharts.length} saved charts.`);
-        if (fetchedCharts.length > 0 && !currentChartId) {
-          // Load the first chart by default
-          setCurrentChartId(fetchedCharts[0].id);
-          setCurrentChartName(fetchedCharts[0].name);
-        }
       });
       return () => unsubscribe();
     }
+    // END OF CHANGES
   }, [db, userId, currentChartId]);
 
   // Effect to fetch and listen to tasks from the currently selected chart.
@@ -271,7 +258,7 @@ function App() {
         unsubscribe();
       };
     } else {
-      setTasks([]); // Clear tasks if no chart is selected
+      setTasks([]);
       setIsChartLoading(false);
     }
   }, [db, userId, currentChartId]);
@@ -324,7 +311,6 @@ function App() {
     data.addColumn('number', 'Percent Complete');
     data.addColumn('string', 'Dependencies');
 
-    // Add parent tasks first
     parentTasks.forEach(parentTask => {
       const duration = parentTask.end.getTime() - parentTask.start.getTime();
       data.addRow([
@@ -338,7 +324,6 @@ function App() {
       ]);
     });
 
-    // Add child tasks
     tasks.forEach(task => {
       const duration = task.end.getTime() - task.start.getTime();
       const dependencies = task.predecessor ? task.predecessor : null;
@@ -468,6 +453,9 @@ function App() {
         predecessor: newTask.predecessor || null,
         createdAt: new Date()
       });
+      const chartDocRef = doc(db, "artifacts", appId, "users", userId, "charts", currentChartId);
+      await updateDoc(chartDocRef, { modifiedAt: new Date() });
+
       setMessage('Task added successfully!');
       setNewTask({
         name: '',
@@ -477,7 +465,7 @@ function App() {
         endTime: '00:00',
         parent: '',
         predecessor: ''
-      }); // Reset form
+      });
     } catch (error) {
       console.error("Error adding task:", error);
       setMessage('Error adding task. Please try again.');
@@ -494,6 +482,8 @@ function App() {
       const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
       const taskDocRef = doc(db, "artifacts", appId, "users", userId, "charts", currentChartId, "tasks", taskId);
       await deleteDoc(taskDocRef);
+      const chartDocRef = doc(db, "artifacts", appId, "users", userId, "charts", currentChartId);
+      await updateDoc(chartDocRef, { modifiedAt: new Date() });
       setMessage('Task deleted successfully!');
     } catch (error) {
       console.error("Error deleting task:", error);
@@ -503,7 +493,6 @@ function App() {
 
   // Function to create a new chart
   const handleCreateNewChart = async () => {
-    // Corrected check: newChartName is now a string.
     if (!newChartName) {
       setMessage("Please enter a name for the new chart.");
       return;
@@ -512,11 +501,12 @@ function App() {
       const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
       const chartsCollectionRef = collection(db, "artifacts", appId, "users", userId, "charts");
       const newChartDocRef = await addDoc(chartsCollectionRef, {
-        name: newChartName, // Corrected: use the simple string state
+        name: newChartName,
         createdAt: new Date(),
+        modifiedAt: new Date(),
       });
-      setTasks([]); // Clear tasks when creating a new chart
-      setParentTasks([]); // Clear parent tasks
+      setTasks([]);
+      setParentTasks([]);
       setCurrentChartId(newChartDocRef.id);
       setCurrentChartName(newChartName);
       setNewChartName('');
@@ -529,8 +519,8 @@ function App() {
 
   // Function to load a selected chart
   const handleLoadChart = (chartId, chartName) => {
-    setTasks([]); // Clear tasks when loading a new chart
-    setParentTasks([]); // Clear parent tasks
+    setTasks([]);
+    setParentTasks([]);
     setCurrentChartId(chartId);
     setCurrentChartName(chartName);
     setMessage(`Chart "${chartName}" loaded.`);
@@ -622,12 +612,20 @@ function App() {
                 <h3 className="subtitle">Your Charts</h3>
                 <ul className="charts-list">
                     {savedCharts.map(chart => (
-                        <li key={chart.id} className="chart-tile">
+                        <li key={chart.id} className={`chart-tile-new ${currentChartId === chart.id ? 'active-chart' : ''}`}>
                             <button
                                 onClick={() => handleLoadChart(chart.id, chart.name)}
-                                className={`chart-button ${currentChartId === chart.id ? 'active' : ''}`}
+                                className="chart-button-new"
                             >
-                                {chart.name}
+                                <span className="chart-name-orange">{chart.name}</span>
+                                <div className="chart-dates">
+                                    {chart.createdAt && (
+                                        <span>Created: {chart.createdAt.toLocaleDateString()}</span>
+                                    )}
+                                    {chart.modifiedAt && (
+                                        <span>Modified: {chart.modifiedAt.toLocaleDateString()}</span>
+                                    )}
+                                </div>
                             </button>
                         </li>
                     ))}
@@ -638,7 +636,6 @@ function App() {
                 <input
                     type="text"
                     placeholder="New chart name"
-                    // Corrected value and onChange to handle a simple string state
                     value={newChartName}
                     onChange={(e) => setNewChartName(e.target.value)}
                     className="input-field"
@@ -862,7 +859,7 @@ function App() {
 
         @media (min-width: 1024px) { /* lg breakpoint */
           .form-card {
-            max-width: 1024px;
+            max-width: 100%;
           }
         }
 
@@ -883,7 +880,7 @@ function App() {
         .logout-button {
             margin-left: 1rem;
             width: auto;
-            max-width: 120px; /* Fix: Constrain button width */
+            max-width: 120px;
             background-color: #ef4444;
         }
         .logout-button:hover {
@@ -937,40 +934,68 @@ function App() {
 
         .charts-list {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 0.5rem;
             list-style: none;
             padding: 0;
             margin: 0;
         }
 
-        .chart-tile {
-            flex-grow: 1;
+        .chart-tile-new {
+            background-color: #f9fafb;
+            border-radius: 0.375rem;
+            border: 1px solid #d1d5db;
+            padding: 0.5rem;
+            position: relative;
+            cursor: pointer;
+            transition: border-color 0.15s ease-in-out;
         }
 
-        .chart-button {
-            width: 100%;
-            padding: 0.5rem 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.375rem;
-            background-color: #f9fafb;
-            cursor: pointer;
-            transition: background-color 0.15s ease-in-out;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #374151;
-        }
-        
-        .chart-button:hover {
+        .chart-tile-new:hover {
             background-color: #e5e7eb;
-        }
-        
-.chart-button.active {
-            background-color: #4f46e5;
-            color: white;
             border-color: #4f46e5;
         }
+
+        .chart-tile-new.active-chart {
+            border-color: #4f46e5;
+            padding-left: 1rem;
+        }
         
+        .chart-tile-new.active-chart::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            background-color: #000;
+            border-radius: 0.375rem 0 0 0.375rem;
+        }
+
+        .chart-button-new {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            width: 100%;
+            background: none;
+            border: none;
+            text-align: left;
+            padding: 0;
+        }
+
+        .chart-name-orange {
+            color: #f97316;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        .chart-dates {
+            font-size: 0.75rem;
+            color: #6b7280;
+            display: flex;
+            gap: 0.75rem;
+        }
+
         .new-chart-container {
             display: flex;
             gap: 0.5rem;
@@ -979,10 +1004,10 @@ function App() {
         }
         
         .create-button {
+            width: auto;
             flex-shrink: 0;
             margin-left: 1rem;
-            width: auto;
-            max-width: 150px; /* Fix: Constrain button width */
+            max-width: 150px;
             background-color: #ef4444;
         }
 
@@ -1163,7 +1188,7 @@ function App() {
           color: #10b981;
         }
         
-        .message.error {
+.message.error {
           color: #ef4444;
         }
         
