@@ -1,7 +1,7 @@
 /* global __initial_auth_token __firebase_config __app_id */
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, writeBatch, connectFirestoreEmulator } from 'firebase/firestore';
 import { connectAuthEmulator } from 'firebase/auth';
 
@@ -91,9 +91,6 @@ function App() {
             if (initialAuthToken) {
               await signInWithCustomToken(firebaseAuth, initialAuthToken)
                 .catch((error) => console.error("Custom token sign-in failed:", error));
-            } else {
-              await signInAnonymously(firebaseAuth)
-                .catch((error) => console.error("Anonymous sign-in failed:", error));
             }
           }
           setIsAuthReady(true);
