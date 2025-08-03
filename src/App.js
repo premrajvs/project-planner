@@ -232,14 +232,30 @@ function App() {
         });
 
         // Calculate parent task start and end dates
-        const finalParentTasks = Object.values(parentTasksMap).map(parentTask => {
-          const startDates = parentTask.children.map(child => child.start);
-          const endDates = parentTask.children.map(child => child.end);
+        const finalParentTasks = Object.values(parentTasksMap).map(parentGroup => {
+          // Find the original parent task from the full list, if it exists as a task itself.
+          const originalParentTask = allTasks.find(t => t.name === parentGroup.name);
+
+          // Collect start and end dates from all children.
+          const childStartDates = parentGroup.children.map(child => child.start);
+          const childEndDates = parentGroup.children.map(child => child.end);
+
+          // The parent's own dates should also be considered in the calculation.
+          const allPossibleStartDates = [...childStartDates];
+          if (originalParentTask) {
+            allPossibleStartDates.push(originalParentTask.start);
+          }
+
+          const allPossibleEndDates = [...childEndDates];
+          if (originalParentTask) {
+            allPossibleEndDates.push(originalParentTask.end);
+          }
+
           return {
-            id: parentTask.id,
-            name: parentTask.name,
-            start: new Date(Math.min(...startDates)),
-            end: new Date(Math.max(...endDates)),
+            id: parentGroup.id,
+            name: parentGroup.name,
+            start: new Date(Math.min(...allPossibleStartDates)),
+            end: new Date(Math.max(...allPossibleEndDates)),
           };
         });
 
